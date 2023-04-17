@@ -26,8 +26,9 @@ try {
 const db = mongoClient.db();
 
 server.post('/participants', async (req, res) => {
-    const participantSchema = joi.object({ name: joi.string().required() });
+    const { name } = req.body;
 
+    const participantSchema = joi.object({ name: joi.string().trim().required() });
     const validation = participantSchema.validate(req.body, { abortEarly: false });
     if (validation.error) {
         const errors = validation.error.details.map(detail => detail.message);
@@ -35,16 +36,16 @@ server.post('/participants', async (req, res) => {
     }
 
     try {
-        const participant = { name: req.body.name, lastStatus: Date.now() }
-        const participantExist = await db.collection('participants').findOne({ name: participant.name });
+        const participant = { name, lastStatus: Date.now() };
+        const participantExist = await db.collection('participants').findOne({ name });
         if (participantExist) return res.status(409).send("Usuário já está em uso");
-        await db.collection('participants').insertOne({ participant });
+        await db.collection('participants').insertOne(participant);
 
         const message = {
             from: participant.name,
             to: "Todos",
             text: "entra na sala...",
-            type: participant.lastStatus,
+            type: "status",
             time: formattedTime
         };
         await db.collection('messages').insertOne(message);
@@ -64,12 +65,12 @@ server.get('/participants', async (req, res) => {
 });
 
 server.post('/messages', async (req, res) => {
-    const participantName = await db.collection('participants').findOne({ name: req.headers.User })
-    if (!participantName) return res.status(422).send("Acesso negado");
+    const from = req.header("User");
+    if (!from) return res.status(422).send("Acesso negado");
 
     const messageSchema = joi.object({
-        to: joi.string().required(),
-        text: joi.string().required(),
+        to: joi.string().trim().required(),
+        text: joi.string().trim().required(),
         type: joi.string().valid("message", "private_message").required(),
     })
 
@@ -80,7 +81,7 @@ server.post('/messages', async (req, res) => {
     }
     try {
         const message = {
-            from: participantName.name,
+            from,
             to: req.body.to,
             text: req.body.text,
             type: req.body.type,
@@ -93,8 +94,42 @@ server.post('/messages', async (req, res) => {
     }
 });
 
-server.get('/messages, async', (req, res) => {
+server.get('/messages', async (req, res) => {
+    const user = req.header("User");
+    if (!user) return res.status(422).send("Acesso negado");
 
+    const { limit } = req.query;
+    if (limit && (isNaN(limit) || parseInt(limit) <= 0)) return res.status(422).send("Valor limite inválido");
+
+    try {
+        if (limit) {
+            const limitedMessages = await db.collection('messages')
+                .find({
+                    $or: [
+                        { to: "Todos" },
+                        { to: user },
+                        { from: user },
+                    ]
+                })
+                .sort({ $natural: -1 })
+                .limit(parseInt(limit))
+                .toArray();
+            return res.send(limitedMessages);
+        }
+        const messages = await db.collection('messages')
+            .find({
+                $or: [
+                    { to: "Todos" },
+                    { to: user },
+                    { from: user },
+                ]
+            })
+            .sort({ $natural: -1 })
+            .toArray();
+        return res.send(messages);
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
 });
 
 
