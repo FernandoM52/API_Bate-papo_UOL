@@ -1,5 +1,5 @@
 import express, { json, text } from 'express';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import dotenv from 'dotenv';
 import joi from 'joi';
 import dayjs from 'dayjs';
@@ -13,7 +13,7 @@ dotenv.config();
 const mongoClient = new MongoClient(process.env.DATABASE_URL);
 try {
     await mongoClient.connect();
-    console.log("Conexão realizada com sucesso!");
+    console.log("Conectado ao banco com sucesso!");
 } catch (err) {
     console.log(err.message)
 }
@@ -92,7 +92,7 @@ server.post("/messages", async (req, res) => {
         to: joi.string().trim().required(),
         text: joi.string().trim().required(),
         type: joi.string().valid("message", "private_message").required(),
-    })
+    });
 
     const validation = messageSchema.validate(req.body, { abortEarly: false });
     if (validation.error) {
@@ -171,5 +171,60 @@ server.post("/status", async (req, res) => {
     }
 });
 
+server.delete("/messages/:id", async (req, res) => {
+    const user = req.header("User");
+    const { id } = req.params;
+
+    try {
+        const isParticipant = db.collection("participants").findOne({ name: user });
+        if (!isParticipant) return res.sendStatus(401);
+
+        const result = await db.collection("messages").findOneAndDelete({ _id: new ObjectId(id) });
+        if (result.deletedCount === 0) return res.status(404).send("Menssagem não encontrada");
+
+        return res.status(200).send({ message: "Documentos apagados com sucesso!" })
+    } catch (err) {
+        return res.status(500).send(err.message);
+    }
+})
+
+server.put("/messages/:id", async (req, res) => {
+    const from = req.header("User");
+    const { id } = req.params;
+
+    const isParticipant = db.collection("participants").findOne({ name: from });
+    if (!isParticipant) return res.sendStatus(401);
+
+    const editMessageSchema = joi.object({
+        to: joi.string().trim().required(),
+        text: joi.string().trim().required(),
+        type: joi.string().valid("message", "private_message").required(),
+    });
+
+    const validation = editMessageSchema.validate(req.body, { abortEarly: false });
+    if (validation.error) {
+        const errors = validation.error.details.map(detail => detail.message);
+        return res.status(422).send(errors);
+    }
+
+    try {
+        const editedMessage = {
+            from,
+            to: req.body.to,
+            text: req.body.text,
+            type: req.body.type,
+            time: formattedTime
+        };
+        const result = await db.collection("messages").findOneAndUpdate(
+            { _id: new ObjectId(id) },
+            { $set: editedMessage }
+        );
+        if (result.matchedCount === 0) return res.status(404).send("Mensagem não encontrada");
+        res.send("Mensage atualizada com sucesso!");
+    } catch (err) {
+        return res.status(500).send(err.message);
+    }
+});
+
 const PORT = 5000;
-server.listen(PORT, () => console.log(`Host is running at port ${PORT}`));
+server.listen(PORT, () => console.log(`Servidor está rodando na porta ${PORT}`));
