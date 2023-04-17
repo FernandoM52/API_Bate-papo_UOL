@@ -9,12 +9,6 @@ const server = express();
 server.use(express.json());
 server.use(cors());
 dotenv.config();
-const formattedTime = dayjs().format("HH:mm:ss");
-//dayjs.extend(utc);
-//dayjs.extend(timzone);
-
-
-
 
 const mongoClient = new MongoClient(process.env.DATABASE_URL);
 try {
@@ -24,6 +18,29 @@ try {
     console.log(err.message)
 }
 const db = mongoClient.db();
+const formattedTime = dayjs().format("HH:mm:ss");
+
+setInterval(async () => {
+    const cutTime = Date.now() - 10000;
+
+    try {
+        const participants = await db.collection("participants").findOneAndDelete({ lastStatus: { $lte: cutTime } });
+        if (participants.value) {
+            const { name } = participants.value;
+
+            const message = {
+                from: name,
+                to: "Todos",
+                text: "sai da sala...",
+                type: "status",
+                time: formattedTime
+            };
+            await db.collection("messages").insertOne(message);
+        }
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+}, 15000);
 
 server.post("/participants", async (req, res) => {
     const { name } = req.body;
@@ -82,6 +99,7 @@ server.post("/messages", async (req, res) => {
         const errors = validation.error.details.map(detail => detail.message);
         return res.status(422).send(errors);
     }
+
     try {
         const message = {
             from,
@@ -152,9 +170,6 @@ server.post("/status", async (req, res) => {
         res.status(500).send(err.message);
     }
 });
-
-//{name: 'João', lastStatus: 12313123}
-//{from: 'João', to: 'Todos', text: 'oi galera', type: 'message', time: '20:04:37'}
 
 const PORT = 5000;
 server.listen(PORT, () => console.log(`Host is running at port ${PORT}`));
