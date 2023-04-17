@@ -25,7 +25,7 @@ try {
 }
 const db = mongoClient.db();
 
-server.post('/participants', async (req, res) => {
+server.post("/participants", async (req, res) => {
     const { name } = req.body;
 
     const participantSchema = joi.object({ name: joi.string().trim().required() });
@@ -37,9 +37,9 @@ server.post('/participants', async (req, res) => {
 
     try {
         const participant = { name, lastStatus: Date.now() };
-        const participantExist = await db.collection('participants').findOne({ name });
+        const participantExist = await db.collection("participants").findOne({ name });
         if (participantExist) return res.status(409).send("Usuário já está em uso");
-        await db.collection('participants').insertOne(participant);
+        await db.collection("participants").insertOne(participant);
 
         const message = {
             from: participant.name,
@@ -48,25 +48,28 @@ server.post('/participants', async (req, res) => {
             type: "status",
             time: formattedTime
         };
-        await db.collection('messages').insertOne(message);
+        await db.collection("messages").insertOne(message);
         res.sendStatus(201);
     } catch (err) {
         res.status(500).send(err.message);
     }
 })
 
-server.get('/participants', async (req, res) => {
+server.get("/participants", async (req, res) => {
     try {
-        const participants = await db.collection('participants').find().toArray();
+        const participants = await db.collection("participants").find().toArray();
         res.send(participants)
     } catch (err) {
         res.status(500).send(err.message);
     }
 });
 
-server.post('/messages', async (req, res) => {
+server.post("/messages", async (req, res) => {
     const from = req.header("User");
     if (!from) return res.status(422).send("Acesso negado");
+
+    const isParticipant = await db.collection("participants").findOne({ name: from });
+    if (!isParticipant) return res.status(422).send("Usuário não foi encontrado na lista de participantes cadastrados");
 
     const messageSchema = joi.object({
         to: joi.string().trim().required(),
@@ -87,14 +90,14 @@ server.post('/messages', async (req, res) => {
             type: req.body.type,
             time: formattedTime
         };
-        await db.collection('messages').insertOne(message)
+        await db.collection("messages").insertOne(message)
         res.sendStatus(201);
     } catch (err) {
         res.status(500).send(err.message);
     }
 });
 
-server.get('/messages', async (req, res) => {
+server.get("/messages", async (req, res) => {
     const user = req.header("User");
     if (!user) return res.status(422).send("Acesso negado");
 
@@ -103,7 +106,7 @@ server.get('/messages', async (req, res) => {
 
     try {
         if (limit) {
-            const limitedMessages = await db.collection('messages')
+            const limitedMessages = await db.collection("messages")
                 .find({
                     $or: [
                         { to: "Todos" },
@@ -116,7 +119,7 @@ server.get('/messages', async (req, res) => {
                 .toArray();
             return res.send(limitedMessages);
         }
-        const messages = await db.collection('messages')
+        const messages = await db.collection("messages")
             .find({
                 $or: [
                     { to: "Todos" },
@@ -132,7 +135,25 @@ server.get('/messages', async (req, res) => {
     }
 });
 
+server.post("/status", async (req, res) => {
+    const user = req.header("User");
+    if (!user) return res.sendStatus(404);
 
+    try {
+        const isParticipant = await db.collection("participants").findOne({ name: user });
+        if (!isParticipant) return res.sendStatus(404);
+
+        const updateStatus = { $set: { lastStatus: Date.now() } };
+        const result = await db.collection("participants").updateOne({ name: user }, updateStatus);
+        if (result.matchedCount === 0) return res.status(404).send("Erro ao atualizar usuário, o mesmo não foi encontradado");
+
+        res.send("Atualizado com sucesso!");
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
+//{name: 'João', lastStatus: 12313123}
 //{from: 'João', to: 'Todos', text: 'oi galera', type: 'message', time: '20:04:37'}
 
 const PORT = 5000;
